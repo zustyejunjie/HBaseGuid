@@ -1,5 +1,6 @@
 package com.mindflow.hbase.tutorials.crud;
 
+import com.mindflow.hbase.tutorials.util.StringUtils;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
@@ -22,8 +23,58 @@ public class HBaseCrudDemo {
 
     public static void main(String[] args) {
 
+        new HBaseCrudDemo().scanTest();
+
         new HBaseCrudDemo().testCrud();
     }
+
+
+    public void scanTest(){
+        Connection connection = null;
+        try {
+
+            //创建表
+            connection = HBaseConnectionUtils.getConnection();
+            TableName tableName = TableName.valueOf("scan");
+
+            createTable(connection, tableName, "c");
+
+            //增加10条数据
+            String rowKey = "00B99WJ42O2B3A:amazon_au:Covina:20171204";
+            put(connection, tableName, rowKey, "c", "customer_num", "10");
+            put(connection, tableName, rowKey, "c", "order_amount", "100");
+            put(connection, tableName, rowKey, "c", "per_amount", "6.6");
+
+            //cf2
+            String rowKey1 = "00B99WJ42O2B3A:amazon_au:Covina:20171205";
+            put(connection, tableName, rowKey1, "c", "customer_num", "101");
+            put(connection, tableName, rowKey1, "c", "order_amount", "1001");
+            put(connection, tableName, rowKey1, "c", "per_amount", "6.61");
+
+            //cf2
+            String rowKey3 = "00B99WJ42O2B3A:amazon_au:Covina:20171206";
+            put(connection, tableName, rowKey3, "c", "customer_num", "1031");
+            put(connection, tableName, rowKey3, "c", "order_amount", "1001");
+            put(connection, tableName, rowKey3, "c", "per_amount", "6.61");
+
+
+            //scan
+            scan(connection, tableName);
+
+
+        }
+        catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    connection.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+    }
+
 
     public void testCrud() {
         Connection connection = null;
@@ -46,8 +97,10 @@ public class HBaseCrudDemo {
             //scan
             scan(connection, tableName);
 
+            //coprosessor
+
             //delete
-            deleteTable(connection, tableName);
+//            deleteTable(connection, tableName);
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -66,23 +119,42 @@ public class HBaseCrudDemo {
             table = connection.getTable(tableName);
             ResultScanner rs = null;
             try {
-                //Scan scan = new Scan(Bytes.toBytes("u120000"), Bytes.toBytes("u200000"));
-                rs = table.getScanner(new Scan());
+                //设定row的range
+                Scan scan = new Scan(Bytes.toBytes("00B99WJ42O2B3A:amazon_au:Covina:20171204"), Bytes.toBytes("00B99WJ42O2B3A:amazon_au:Covina:20171207"));
+                //设置要读取的列族
+                scan.addFamily(Bytes.toBytes("c"));
+                //设置要读取的列名
+//                scan.addColumn(Bytes.toBytes("cf2"),Bytes.toBytes("age2"));
+                Integer customerNum = 0;
+                double orderVolume = 0d;
+                rs = table.getScanner(scan);
                 for(Result r:rs){
-                    NavigableMap<byte[], NavigableMap<byte[], NavigableMap<Long, byte[]>>> navigableMap = r.getMap();
-                    for(Map.Entry<byte[], NavigableMap<byte[], NavigableMap<Long, byte[]>>> entry : navigableMap.entrySet()){
-                        logger.info("row:{} key:{}", Bytes.toString(r.getRow()), Bytes.toString(entry.getKey()));
-                        NavigableMap<byte[], NavigableMap<Long, byte[]>> map =entry.getValue();
-                        for(Map.Entry<byte[], NavigableMap<Long, byte[]>> en:map.entrySet()){
-                            System.out.print(Bytes.toString(en.getKey())+"##");
-                            NavigableMap<Long, byte[]> ma = en.getValue();
-                            for(Map.Entry<Long, byte[]>e: ma.entrySet()){
-                                System.out.print(e.getKey()+"###");
-                                System.out.println(Bytes.toString(e.getValue()));
-                            }
-                        }
+
+                    String num = Bytes.toString(r.getValue(Bytes.toBytes("c"),Bytes.toBytes("customer_num")));
+                    String volume = Bytes.toString(r.getValue(Bytes.toBytes("c"),Bytes.toBytes("order_amount")));
+                    if(StringUtils.isNotEmpty(num)){
+                        customerNum = customerNum+Integer.valueOf(num);
                     }
+                    if(StringUtils.isNotEmpty(volume)){
+                        orderVolume = Integer.valueOf(volume) + orderVolume;
+                    }
+
+//                    NavigableMap<byte[], NavigableMap<byte[], NavigableMap<Long, byte[]>>> navigableMap = r.getMap();
+//                    for(Map.Entry<byte[], NavigableMap<byte[], NavigableMap<Long, byte[]>>> entry : navigableMap.entrySet()){
+//                        logger.info("row:{} key:{}", Bytes.toString(r.getRow()), Bytes.toString(entry.getKey()));
+//                        NavigableMap<byte[], NavigableMap<Long, byte[]>> map =entry.getValue();
+//                        for(Map.Entry<byte[], NavigableMap<Long, byte[]>> en:map.entrySet()){
+//                            System.out.print(Bytes.toString(en.getKey())+"##");
+//                            NavigableMap<Long, byte[]> ma = en.getValue();
+//                            for(Map.Entry<Long, byte[]>e: ma.entrySet()){
+//                                System.out.print(e.getKey()+"###");
+//                                System.out.println(Bytes.toString(e.getValue()));
+//                            }
+//                        }
+//                    }
                 }
+                System.out.println("_------->"+customerNum);
+                System.out.println("------->"+orderVolume);
             } finally {
                 if(rs!=null) {
                     rs.close();
@@ -147,6 +219,7 @@ public class HBaseCrudDemo {
                 logger.warn("table:{} exists!", tableName.getName());
             }else{
                 HTableDescriptor tableDescriptor = new HTableDescriptor(tableName);
+                tableDescriptor.addCoprocessor("org.apache.hadoop.hbase.coprocessor.AggregateImplementation");
                 for(String columnFamily : columnFamilies) {
                     tableDescriptor.addFamily(new HColumnDescriptor(columnFamily));
                 }
